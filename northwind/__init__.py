@@ -1,7 +1,7 @@
 # Northwind Drone Navigation Library
 # A comprehensive library for drone navigation, obstacle avoidance, stability control, mission management, AI decision making, and data logging.
 
-__version__ = "1.1.1"
+__version__ = "1.1.2"
 
 from . import navigation
 from . import obstacle_handling
@@ -9,6 +9,7 @@ from . import stability
 from . import mission_control
 from . import ai_decision
 from . import data_logging
+from . import motors
 
 # Import functions to package level for convenience
 from .navigation import set_destination, calculate_route, update_position
@@ -46,6 +47,15 @@ from .mission_control import (
 )
 from .ai_decision import choose_action, predict_next_move
 from .data_logging import log_flight_data, export_data, send_to_cloud
+from .motors import (
+    MotorController,
+    set_hardware_device,
+    set_motor_speed,
+    set_motor_speed_pwm,
+    ramp_motor_speed,
+    stop_motor,
+    get_motor_status,
+)
 
 __all__ = [
     "navigation",
@@ -54,6 +64,7 @@ __all__ = [
     "mission_control",
     "ai_decision",
     "data_logging",
+    "motors",
     "set_destination",
     "calculate_route", 
     "update_position",
@@ -95,5 +106,12 @@ __all__ = [
     "predict_next_move",
     "log_flight_data",
     "export_data",
-    "send_to_cloud"
+    "send_to_cloud",
+    "MotorController",
+    "set_hardware_device",
+    "set_motor_speed",
+    "set_motor_speed_pwm",
+    "ramp_motor_speed",
+    "stop_motor",
+    "get_motor_status",
 ]

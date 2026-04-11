@@ -1,8 +1,8 @@
 # Northwind Drone Navigation Library
 
-**Version 1.1.1**
+**Version 1.1.2**
 
-A comprehensive Python library for autonomous drone navigation and control systems, featuring AI-powered decision making, obstacle avoidance, and real-time stability control.
+A comprehensive Python library for autonomous drone navigation and control systems, featuring AI-powered decision making, obstacle avoidance, real-time stability control, and advanced PWM motor speed control for ESP32/Arduino/drone hardware.
 
 ## Features
 
@@ -68,6 +68,13 @@ northwind.set_destination(37.7749, -122.4194)  # San Francisco
 # Start autonomous mission
 northwind.start_mission()
 
+# Hardware motor control
+northwind.set_hardware_device('esp32')
+northwind.set_motor_speed(75)  # percent of full PWM range
+northwind.ramp_motor_speed(90, step=10, delay=0.1)
+status = northwind.get_motor_status()
+print(status)
+
 # AI decision making
 action = northwind.choose_action('normal')
 next_move = northwind.predict_next_move()
@@ -76,6 +83,17 @@ next_move = northwind.predict_next_move()
 northwind.log_flight_data()
 northwind.export_data()
 ```
+
+## Motor Speed Control
+
+Northwind 1.1.2 introduces PWM-based motor speed control for embedded hardware platforms.
+Supported device profiles:
+
+- `esp32` — ESP32 PWM driver profile
+- `arduino` — Arduino PWM driver profile
+- `drone` — Generic drone ESC PWM profile
+
+Use `set_hardware_device(...)` to choose the device type, then control speed with `set_motor_speed(...)` or `set_motor_speed_pwm(...)`.
 
 ## Requirements
 
