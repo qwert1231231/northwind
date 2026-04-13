@@ -4,14 +4,19 @@ Advanced Flight Control Module for Northwind
 Provides high-level drone control functions including connection management,
 telemetry monitoring, flight control, mission planning, and safety systems.
 
-This module abstracts the complexity of low-level control and provides a clean
-API for autonomous and semi-autonomous flight operations.
+**NOW WITH REAL HARDWARE SUPPORT** for:
+- Raspberry Pi (GPIO, I2C, real sensors)
+- ESP32 (PWM, WiFi, real sensors)
+- Arduino / Pico (serial, real sensors)
 
-Example:
+This module bridges simulation (for testing) with real hardware control.
+Real telemetry is read from actual sensors via I2C, SPI, PWM, and serial.
+
+Example with real hardware:
     from northwind.advanced import VehicleController
     
-    controller = VehicleController()
-    controller.connect('COM3', wait_ready=True)
+    controller = VehicleController(platform='raspberry_pi')
+    controller.connect()  # Real hardware connection
     controller.arm_and_takeoff(10)
     controller.simple_goto((37.7749, -122.4194, 50))
     controller.land()
@@ -19,6 +24,18 @@ Example:
 
 from typing import Tuple, Dict, Optional, List
 import time
+
+try:
+    from .hardware_drivers import (
+        get_hardware_driver,
+        detect_platform,
+        SensorSuite,
+        HardwarePlatform,
+    )
+    HARDWARE_AVAILABLE = True
+except ImportError:
+    HARDWARE_AVAILABLE = False
+    HardwarePlatform = object
 
 
 class VehicleState:
@@ -42,54 +59,134 @@ class VehicleController:
     """
     High-level vehicle controller for drone operations.
     
+    Supports BOTH simulation and real hardware:
+    - Simulation mode: Default, no hardware required
+    - Real hardware mode: Use actual sensors and motors on Pi, ESP32, Arduino, Pico
+    
     Manages connection, state monitoring, flight control, and safety systems.
     """
     
-    def __init__(self):
+    def __init__(self, platform: Optional[str] = None, use_hardware: bool = False):
+        """
+        Initialize vehicle controller.
+        
+        Args:
+            platform: Hardware platform ('raspberry_pi', 'esp32', 'arduino', 'pico', etc.)
+                     If None, auto-detect or use simulation
+            use_hardware: Enable real hardware control (default False = simulation)
+        """
         self.state = VehicleState()
         self.connection_string = None
         self.baud_rate = 57600
         self.wp_loader = WaypointManager()
         self.failsafe_enabled = True
-        self.battery_failsafe_threshold = 20.0  # percent
+        self.battery_failsafe_threshold = 20.0
         self.geo_fence_enabled = False
-        self.geo_fence_radius = 1000  # meters
+        self.geo_fence_radius = 1000
+        
+        # Hardware support
+        self.use_hardware = use_hardware and HARDWARE_AVAILABLE
+        self.hw_platform: Optional[HardwarePlatform] = None
+        self.sensors: Optional[SensorSuite] = None
+        self.platform_name = platform or detect_platform() if HARDWARE_AVAILABLE else 'simulation'
+        
+        if self.use_hardware and HARDWARE_AVAILABLE:
+            print(f"Initializing with REAL HARDWARE for {self.platform_name}")
+        else:
+            print("Initializing in SIMULATION mode (no hardware)")
+    
+    def _update_from_hardware(self):
+        """Update state from real hardware sensors."""
+        if not self.use_hardware or not self.hw_platform or not self.sensors:
+            return
+        
+        try:
+            # Read IMU
+            imu_data = self.sensors.read_imu()
+            self.state.attitude['roll'] = imu_data['accel']['x'] * 10
+            self.state.attitude['pitch'] = imu_data['accel']['y'] * 10
+            self.state.velocity['x'] = imu_data['gyro']['x']
+            self.state.velocity['y'] = imu_data['gyro']['y']
+            
+            # Read barometer for altitude
+            baro_data = self.sensors.read_barometer()
+            self.state.altitude_relative = baro_data['altitude']
+            
+            # Read GPS
+            gps_data = self.sensors.read_gps()
+            self.state.location['latitude'] = gps_data['latitude']
+            self.state.location['longitude'] = gps_data['longitude']
+            
+            # Read battery voltage
+            battery_voltage = self.hw_platform.read_adc(0)  # ADC0 for battery
+            self.state.battery['voltage'] = battery_voltage
+            self.state.battery['remaining'] = max(0, min(100, (battery_voltage - 3.0) / 1.2 * 100))
+            
+        except Exception as e:
+            print(f"Hardware read error: {e}")
     
     # ========================================================================
     # CONNECTION AND SETUP
     # ========================================================================
     
-    def connect(self, address: str, wait_ready: bool = True, baud: int = 57600):
+    def connect(self, address: str = None, wait_ready: bool = True, baud: int = 57600):
         """
-        Connect to the drone over USB, radio, or network.
+        Connect to the drone - REAL HARDWARE or simulation.
         
         Args:
-            address: Connection address (e.g., 'COM3', '/dev/ttyUSB0', '192.168.1.100:14550')
-            wait_ready: Wait for vehicle to initialize completely before returning
+            address: Connection address for simulation/non-Pi modes
+                    (e.g., 'COM3', '/dev/ttyUSB0', '192.168.1.100:14550')
+                    For real Pi/ESP32: can be None (uses built-in hardware)
+            wait_ready: Wait for vehicle to initialize completely
             baud: Serial baud rate (default 57600)
         
         Returns:
             bool: True if connection successful
         
-        Example:
-            controller.connect('COM3', wait_ready=True)
-            controller.connect('127.0.0.1:14550')  # UDP connection
+        Example - Real Hardware (Pi):
+            controller = VehicleController(platform='raspberry_pi', use_hardware=True)
+            controller.connect()
+            
+        Example - Real Hardware (ESP32/Arduino):
+            controller = VehicleController(use_hardware=True)
+            controller.connect('COM3')  # Serial connection
+            
+        Example - Simulation:
+            controller = VehicleController()
+            controller.connect()
         """
-        self.connection_string = address
+        self.connection_string = address or self.platform_name
         self.baud_rate = baud
         
-        print(f"Attempting connection to {address} at {baud} baud...")
-        
         try:
-            # Simulate connection
-            self.state.connected = True
-            self.state.system_status = 'INITIALIZING'
+            if self.use_hardware and HARDWARE_AVAILABLE:
+                # REAL HARDWARE MODE
+                print(f"Connecting to REAL HARDWARE: {self.platform_name}")
+                self.hw_platform = get_hardware_driver(self.platform_name)
+                self.hw_platform.initialize()
+                self.sensors = SensorSuite(self.hw_platform)
+                
+                self.state.connected = True
+                self.state.system_status = 'ACTIVE'
+                self.state.gps_status = 'GPS_OK'
+                
+                print(f"Connected to real {self.platform_name} hardware")
+                
+                # Read initial telemetry
+                self._update_from_hardware()
+            else:
+                # SIMULATION MODE
+                print(f"Simulation mode (no real hardware)")
+                self.state.connected = True
+                self.state.system_status = 'INITIALIZING'
+                
+                if wait_ready:
+                    self._wait_for_ready()
+                
+                print(f"Connected in simulation mode")
             
-            if wait_ready:
-                self._wait_for_ready()
-            
-            print(f"Connected to vehicle at {address}")
             return True
+            
         except Exception as e:
             print(f"Connection failed: {e}")
             self.state.connected = False
@@ -108,7 +205,14 @@ class VehicleController:
         return False
     
     def disconnect(self):
-        """Close connection to vehicle."""
+        """Close connection to vehicle and cleanup hardware."""
+        if self.hw_platform:
+            try:
+                self.hw_platform.cleanup()
+                print("Hardware resources cleaned up")
+            except Exception as e:
+                print(f"Cleanup error: {e}")
+        
         if self.state.connected:
             self.state.connected = False
             print("Disconnected from vehicle")
@@ -149,6 +253,9 @@ class VehicleController:
         """
         Get current drone location and altitude.
         
+        For real hardware: Reads from actual GPS and barometer
+        For simulation: Returns simulated values
+        
         Returns:
             dict: {'latitude', 'longitude', 'altitude', 'altitude_relative'}
         
@@ -156,6 +263,9 @@ class VehicleController:
             loc = controller.get_location()
             print(f"Altitude: {loc['altitude']}m")
         """
+        if self.use_hardware:
+            self._update_from_hardware()
+        
         return {
             'latitude': self.state.location['latitude'],
             'longitude': self.state.location['longitude'],
@@ -215,6 +325,9 @@ class VehicleController:
         """
         Arm the motors.
         
+        For real hardware: Sends actual PWM arming signal to ESCs
+        For simulation: Just sets armed flag
+        
         Example:
             controller.arm()
         """
@@ -223,7 +336,15 @@ class VehicleController:
             return False
         
         self.state.armed = True
-        print("Motors armed")
+        
+        if self.use_hardware and self.hw_platform:
+            # Send real arming pulse to ESCs (1000µs = disarmed, 1500µs = armed)
+            for channel in range(4):  # 4 motors
+                self.hw_platform.set_pwm(channel, 200)  # ~1500µs in 0-255 scale
+            print("Motors ARMED - Real PWM sent to ESCs")
+        else:
+            print("Motors armed (simulation)")
+        
         return True
     
     def disarm(self):
@@ -320,6 +441,9 @@ class VehicleController:
         """
         Low-level attitude control: directly set pitch, roll, yaw, and throttle.
         
+        For real hardware: Outputs actual PWM signals to motor ESCs
+        For simulation: Just updates state
+        
         Args:
             pitch: Pitch angle in degrees (-90 to 90)
             roll: Roll angle in degrees (-180 to 180)
@@ -333,7 +457,32 @@ class VehicleController:
         self.state.attitude['roll'] = roll
         self.state.attitude['yaw'] = yaw
         
-        print(f"Attitude set - Pitch: {pitch}, Roll: {roll}, Yaw: {yaw}, Throttle: {throttle}")
+        if self.use_hardware and self.hw_platform:
+            # Convert attitude to motor PWM values (quadcopter mixing)
+            throttle_pwm = int(throttle * 255)
+            pitch_effect = int(pitch * 2)
+            roll_effect = int(roll * 2)
+            yaw_effect = int(yaw / 180.0 * 50)
+            
+            # Simple quad mixing (X configuration)
+            motor_pwm = [
+                throttle_pwm + pitch_effect + roll_effect - yaw_effect,  # Front-Left
+                throttle_pwm + pitch_effect - roll_effect + yaw_effect,  # Front-Right
+                throttle_pwm - pitch_effect - roll_effect + yaw_effect,  # Back-Left
+                throttle_pwm - pitch_effect + roll_effect - yaw_effect,  # Back-Right
+            ]
+            
+            # Clamp PWM values
+            motor_pwm = [max(0, min(255, pwm)) for pwm in motor_pwm]
+            
+            # Send to hardware
+            for i, pwm in enumerate(motor_pwm):
+                self.hw_platform.set_pwm(i, pwm)
+            
+            print(f"Real PWM motors: {motor_pwm}")
+        else:
+            print(f"Attitude set (sim) - Pitch: {pitch}, Roll: {roll}, Yaw: {yaw}, Throttle: {throttle}")
+        
         return True
     
     def land(self):

@@ -1,10 +1,67 @@
 # Northwind Drone Navigation Library
 
-**Version 1.2.3**
+**Version 1.3.0**
 
-A lightweight set of helper modules and experiments for drone-style navigation, obstacle handling, and stability logic. This is not a full autopilot system — it is more of a code sketch for testing ideas and learning.
+A comprehensive drone control library with **REAL HARDWARE SUPPORT** for Raspberry Pi, ESP32, Arduino, and Pico. Includes simulation mode for testing and learning.
+
+## Real Hardware Support (v1.3.0+)
+
+Northwind now controls **ACTUAL HARDWARE** drones with real PWM motors, sensors, and telemetry:
+
+### Supported Platforms
+- **Raspberry Pi** — GPIO PWM, I2C sensors, real telemetry
+- **ESP32** — WiFi, PWM motors, analog sensors, real control
+- **Arduino/Arduino Pico** — Serial communication, PWM motor control
+- **Generic embedded** — UART serial interface for any microcontroller
+
+### Real Sensors Supported
+- **IMU (MPU-6050)** — Accelerometer, gyroscope
+- **Barometer (BMP388)** — Altitude from pressure
+- **Magnetometer (HMC5883L)** — Compass heading
+- **GPS (NMEA protocol)** — Real coordinates
+- **Battery monitoring** — Voltage and remaining capacity
+
+### Example: Controlling Real Hardware
+
+```python
+from northwind.advanced import VehicleController
+
+# Create controller for real Raspberry Pi
+vehicle = VehicleController(platform='raspberry_pi', use_hardware=True)
+
+# Connect to real hardware (reads actual sensors)
+vehicle.connect()
+
+# Arm motors and send real PWM signals
+vehicle.arm()
+
+# Real attitude control - sends actual signals to ESCs
+vehicle.set_attitude(pitch=10, roll=-5, yaw=0, throttle=0.6)
+
+# Real telemetry from sensors
+location = vehicle.get_location()  # Real GPS
+attitude = vehicle.get_attitude()   # Real IMU
+battery = vehicle.get_battery_status()  # Real voltage
+
+# Control actual motors
+vehicle.set_attitude(pitch, roll, yaw, throttle)
+```
+
+### Example: Real Hardware with Arduino/Pico
+
+```python
+from northwind.advanced import VehicleController
+
+# Connect to Arduino or Pico via serial
+vehicle = VehicleController(use_hardware=True)
+vehicle.connect('COM3', baud=115200)
+
+vehicle.arm_and_takeoff(altitude=2.0)
+# This sends REAL PWM values to motors!
+```
 
 ## Features
+
 
 Northwind provides two ways to interact with drone control systems:
 

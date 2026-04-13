@@ -1,7 +1,7 @@
 # Northwind Drone Navigation Library
 # Lightweight helper code for drone-style navigation, obstacle handling, and stability experiments.
 
-__version__ = "1.2.3"
+__version__ = "1.3.0"
 
 from . import navigation
 from . import obstacle_handling
@@ -12,6 +12,7 @@ from . import data_logging
 from . import motors
 from . import drone
 from . import advanced
+from . import hardware_drivers
 from . import hal
 from . import flight_control
 from . import sensor_fusion
@@ -95,6 +96,7 @@ __all__ = [
     "motors",
     "drone",
     "advanced",
+    "hardware_drivers",
     "set_destination",
     "calculate_route", 
     "update_position",
