@@ -1,6 +1,6 @@
 # Northwind Drone Navigation Library
 
-**Version 1.2.2**
+**Version 1.2.3**
 
 A lightweight set of helper modules and experiments for drone-style navigation, obstacle handling, and stability logic. This is not a full autopilot system — it is more of a code sketch for testing ideas and learning.
 
@@ -28,6 +28,42 @@ Modular architecture for complex applications.
 - **Motor Control** — PWM speed control for ESP32/Arduino/drone ESC
 - **AI Decision Layer** — State-based action selection
 - **Data Logging** — Telemetry recording and cloud export
+
+### 3. **Advanced Flight Control** (`from northwind.advanced import VehicleController`)
+High-level drone operations with safety systems.
+
+**Connection & Setup:**
+- `connect(address, wait_ready=True)` — Connect to drone via USB/radio/network
+- `disconnect()` — Close connection
+
+**Telemetry & State Monitoring:**
+- `get_armed()`, `get_mode()`, `get_location()` — Read vehicle state
+- `get_attitude()`, `get_velocity()` — Monitor dynamics
+- `get_battery_status()` — Battery voltage, current, remaining
+- `get_system_status()` — Overall health
+
+**Flight Control:**
+- `arm()`, `disarm()` — Motor control
+- `arm_and_takeoff(altitude)` — Takeoff to target altitude
+- `simple_goto(lat, lon, alt)` — Fly to GPS location
+- `set_velocity_body(vx, vy, vz)` — Body-frame velocity control
+- `set_attitude(pitch, roll, yaw, throttle)` — Low-level angle control
+- `land()` — Auto-land at current location
+
+**Mission Planning:**
+- `upload_mission(waypoints)` — Load waypoint list
+- `start_mission()`, `pause_mission()`, `resume_mission()` — Mission control
+- `set_region_of_interest(location)` — Point camera at target
+- `command_long(cmd_id, params)` — Custom MAVLink commands
+
+**Safety & Failsafes:**
+- `return_to_launch()` — RTL mode (auto-return and land)
+- `set_battery_failsafe(threshold, action)` — Low-battery protection
+- `check_battery_failsafe()` — Trigger battery failsafe logic
+- `enable_geofence(radius)` — Circular boundary protection
+- `check_geofence(location)` — Verify location is within bounds
+- `emergency_stop()` — Immediate disarm (emergency only)
+- `get_failsafe_status()` — Review safety configuration
 
 
 ## Installation
@@ -112,6 +148,49 @@ next_move = northwind.predict_next_move()
 # Log flight data
 northwind.log_flight_data()
 northwind.export_data()
+```
+
+### Advanced Flight Control (Waypoint missions, failsafes, geofence)
+
+```python
+from northwind.advanced import VehicleController
+
+# Create vehicle controller
+vehicle = VehicleController()
+
+# Connect to drone
+vehicle.connect('COM3', wait_ready=True)
+
+# Arm and takeoff
+vehicle.arm_and_takeoff(target_altitude=20)
+
+# Upload waypoint mission
+waypoints = [
+    (37.7749, -122.4194, 20),
+    (37.7750, -122.4195, 25),
+    (37.7751, -122.4196, 30),
+]
+vehicle.upload_mission(waypoints)
+
+# Configure safety
+vehicle.set_battery_failsafe(threshold=20, action='RTL')
+vehicle.enable_geofence(radius=1000)
+
+# Start autonomous mission
+vehicle.start_mission()
+
+# Monitor telemetry
+while vehicle.get_armed():
+    location = vehicle.get_location()
+    battery = vehicle.get_battery_status()
+    print(f"Alt: {location['altitude_relative']:.1f}m, Battery: {battery['remaining']:.0f}%")
+    
+    # Check failsafes
+    vehicle.check_battery_failsafe()
+
+# Land
+vehicle.land()
+vehicle.disconnect()
 ```
 
 ## Motor Speed Control
