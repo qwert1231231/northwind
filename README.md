@@ -1,12 +1,12 @@
-# Northwind Drone Navigation Library
+# Hoveryn Drone Navigation Library
 
-**Version 1.3.0**
+**Version 1.4.0**
 
 A comprehensive drone control library with **REAL HARDWARE SUPPORT** for Raspberry Pi, ESP32, Arduino, and Pico. Includes simulation mode for testing and learning.
 
 ## Real Hardware Support (v1.3.0+)
 
-Northwind now controls **ACTUAL HARDWARE** drones with real PWM motors, sensors, and telemetry:
+Hoveryn now controls **ACTUAL HARDWARE** drones with real PWM motors, sensors, and telemetry:
 
 ### Supported Platforms
 - **Raspberry Pi** — GPIO PWM, I2C sensors, real telemetry
@@ -24,7 +24,7 @@ Northwind now controls **ACTUAL HARDWARE** drones with real PWM motors, sensors,
 ### Example: Controlling Real Hardware
 
 ```python
-from northwind.advanced import VehicleController
+from Hoveryn.advanced import VehicleController
 
 # Create controller for real Raspberry Pi
 vehicle = VehicleController(platform='raspberry_pi', use_hardware=True)
@@ -50,7 +50,7 @@ vehicle.set_attitude(pitch, roll, yaw, throttle)
 ### Example: Real Hardware with Arduino/Pico
 
 ```python
-from northwind.advanced import VehicleController
+from Hoveryn.advanced import VehicleController
 
 # Connect to Arduino or Pico via serial
 vehicle = VehicleController(use_hardware=True)
@@ -63,9 +63,9 @@ vehicle.arm_and_takeoff(altitude=2.0)
 ## Features
 
 
-Northwind provides two ways to interact with drone control systems:
+Hoveryn provides two ways to interact with drone control systems:
 
-### 1. **Simplified Drone Shortcut** (`from northwind import drone`)
+### 1. **Simplified Drone Shortcut** (`from Hoveryn import drone`)
 Direct, function-based API for quick scripts and prototyping.
 - Motor control: `drone.set_speed()`, `drone.ramp_speed()`, `drone.stop()`
 - Mission control: `drone.initialize()`, `drone.calibrate()`, `drone.fly()`, `drone.land()`, `drone.home()`
@@ -86,7 +86,7 @@ Modular architecture for complex applications.
 - **AI Decision Layer** — State-based action selection
 - **Data Logging** — Telemetry recording and cloud export
 
-### 3. **Advanced Flight Control** (`from northwind.advanced import VehicleController`)
+### 3. **Advanced Flight Control** (`from Hoveryn.advanced import VehicleController`)
 High-level drone operations with safety systems.
 
 **Connection & Setup:**
@@ -128,20 +128,20 @@ High-level drone operations with safety systems.
 Install the latest release from PyPI:
 
 ```bash
-pip install --upgrade northwind
+pip install --upgrade Hoveryn
 ```
 
 Install the current repository version from GitHub:
 
 ```bash
-pip install --upgrade git+https://github.com/qwert1231231/northwind.git
+pip install --upgrade git+https://github.com/qwert1231231/Hoveryn.git
 ```
 
 Or clone and install locally:
 
 ```bash
-git clone https://github.com/qwert1231231/northwind.git
-cd northwind
+git clone https://github.com/qwert1231231/Hoveryn.git
+cd Hoveryn
 pip install -e .
 ```
 
@@ -150,7 +150,7 @@ pip install -e .
 ### Simplified Shortcut API (Recommended for scripts)
 
 ```python
-from northwind import drone
+from Hoveryn import drone
 
 # Initialize and configure
 drone.initialize()
@@ -183,34 +183,34 @@ drone.export()
 ### Full Module Access (Advanced)
 
 ```python
-import northwind
+import Hoveryn
 
 # Set destination coordinates
-northwind.set_destination(37.7749, -122.4194)  # San Francisco
+Hoveryn.set_destination(37.7749, -122.4194)  # San Francisco
 
 # Start autonomous mission
-northwind.start_mission()
+Hoveryn.start_mission()
 
 # Hardware motor control
-northwind.set_hardware_device('esp32')
-northwind.set_motor_speed(75)  # percent of full PWM range
-northwind.ramp_motor_speed(90, step=10, delay=0.1)
-status = northwind.get_motor_status()
+Hoveryn.set_hardware_device('esp32')
+Hoveryn.set_motor_speed(75)  # percent of full PWM range
+Hoveryn.ramp_motor_speed(90, step=10, delay=0.1)
+status = Hoveryn.get_motor_status()
 print(status)
 
 # Decision helpers
-action = northwind.choose_action('normal')
-next_move = northwind.predict_next_move()
+action = Hoveryn.choose_action('normal')
+next_move = Hoveryn.predict_next_move()
 
 # Log flight data
-northwind.log_flight_data()
-northwind.export_data()
+Hoveryn.log_flight_data()
+Hoveryn.export_data()
 ```
 
 ### Advanced Flight Control (Waypoint missions, failsafes, geofence)
 
 ```python
-from northwind.advanced import VehicleController
+from Hoveryn.advanced import VehicleController
 
 # Create vehicle controller
 vehicle = VehicleController()
@@ -252,7 +252,7 @@ vehicle.disconnect()
 
 ## Motor Speed Control
 
-Northwind 1.2.2 provides PWM-based motor speed control for ESP32, Arduino, and drone hardware platforms.
+Hoveryn 1.4.0 provides PWM-based motor speed control for ESP32, Arduino, and drone hardware platforms.
 
 ### Supported Devices
 - `esp32` — ESP32 PWM driver (0-255 range, 1000 Hz)
@@ -261,7 +261,7 @@ Northwind 1.2.2 provides PWM-based motor speed control for ESP32, Arduino, and d
 
 ### Using the Simplified Drone API
 ```python
-from northwind import drone
+from Hoveryn import drone
 
 # Select hardware device
 drone.config_device('esp32')
@@ -282,7 +282,7 @@ drone.stop()
 
 ### Using pwm values directly
 ```python
-from northwind import motors
+from Hoveryn import motors
 
 motors.set_hardware_device('esp32')
 motors.set_motor_speed_pwm(128)  # Mid-range for ESP32
@@ -305,5 +305,5 @@ MIT License - see LICENSE file for details.
 
 ## Repository
 
-- GitHub: [https://github.com/qwert1231231/northwind](https://github.com/qwert1231231/northwind)
-- PyPI: [https://pypi.org/project/northwind/](https://pypi.org/project/northwind/)
+- GitHub: [https://github.com/qwert1231231/Hoveryn](https://github.com/qwert1231231/Hoveryn)
+- PyPI: [https://pypi.org/project/Hoveryn/](https://pypi.org/project/Hoveryn/)

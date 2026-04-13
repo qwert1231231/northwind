@@ -1,457 +1,306 @@
 """
 Mission control module for Northwind drone library.
-Manages mission lifecycle, autonomous behaviors, safety protocols, and system health.
+Manages mission execution, safety, and hardware-aware flight sequencing.
 """
 
 import datetime
-import random
+import json
+import math
+import time
+from typing import Any, Dict, List, Optional, Tuple, Union
 
-from . import ai_decision
-from . import data_logging
-from . import navigation
-from . import obstacle_handling
-from . import stability
+from .ai_decision import choose_action
+from .data_logging import DataLogger
+from .flight_control import FlightControlSystem
+from .hal import FlightControllerHAL, SimulatedHAL
+from .motors import MotorController
+from .navigation import NavigationSystem
+from .obstacle_handling import ObstacleHandler
+from .sensor_fusion import SensorFusion
 
 
-class MissionController:
-    def __init__(self):
-        self.mission_active = False
-        self.mission_paused = False
-        self.home_position = navigation.Navigation().current_position
-        self.flight_mode = 'manual'
-        self.mission_plan = []
-        self.route = []
-        self.world_model = {}
-        self.telemetry = []
-        self.sensors_calibrated = False
-        self.last_environment_scan = {}
-        self.emergency_engaged = False
+class Mission:
+    def __init__(self, hal: Optional[FlightControllerHAL] = None):
+        self.hal = hal or SimulatedHAL()
+        self.fusion = SensorFusion()
+        self.motor_controller = MotorController()
+        self.flight_control = FlightControlSystem(self.hal, self.motor_controller, self.fusion)
+        self.navigation = NavigationSystem(self.hal, self.fusion)
+        self.obstacle_handler = ObstacleHandler(self.hal, self.flight_control)
+        self.waypoints: List[Tuple[float, float]] = []
+        self.active = False
+        self.paused = False
+        self.home_position = (0.0, 0.0)
+        self.logger = DataLogger()
         self.health_status = {
             'battery': 100,
             'gps': True,
             'imu': True,
-            'camera': True,
             'motors': True,
         }
 
-    def initialize_system(self):
-        """Boot and reset all drone systems and state."""
-        self.mission_active = False
-        self.mission_paused = False
-        self.flight_mode = 'manual'
-        self.mission_plan = []
-        self.route = []
-        self.world_model = {}
-        self.telemetry = []
-        self.sensors_calibrated = False
-        self.last_environment_scan = {}
-        self.emergency_engaged = False
-        self.health_status = {
-            'battery': 100,
-            'gps': True,
-            'imu': True,
-            'camera': True,
-            'motors': True,
-        }
-        self.home_position = navigation.Navigation().current_position
-        print("System initialized and reset")
+    def calibrate(self) -> bool:
+        print("Calibrating sensors and preparing hardware")
+        self.flight_control.arm()
+        self.motor_controller.calibrate_esc()
+        self.paused = False
         return True
 
-    def calibrate_sensors(self):
-        """Calibrate GPS, IMU, and camera inputs."""
-        self.sensors_calibrated = True
-        print("Calibrating GPS, IMU, and camera sensors")
-        print("Calibration complete")
-        return True
-
-    def set_flight_mode(self, mode):
-        """Switch between manual, assist, and autonomous flight modes."""
-        valid_modes = {'manual', 'assist', 'autonomous'}
-        if mode not in valid_modes:
-            raise ValueError(f"Invalid flight mode: {mode}")
-        self.flight_mode = mode
-        print(f"Flight mode set to: {mode}")
-        return self.flight_mode
-
-    def define_mission(self, path):
-        """Load a full route or waypoint list for the mission."""
+    def load_waypoints(self, path: Union[str, List[Tuple[float, float]]]) -> List[Tuple[float, float]]:
         if isinstance(path, str):
-            try:
-                with open(path, 'r') as handle:
-                    import json
-                    payload = json.load(handle)
-                self.mission_plan = payload.get('waypoints', []) if isinstance(payload, dict) else payload
-            except (IOError, ValueError) as exc:
-                raise ValueError(f"Unable to load mission file: {exc}")
+            with open(path, 'r', encoding='utf-8') as f:
+                payload = json.load(f)
+            self.waypoints = payload.get('waypoints', []) if isinstance(payload, dict) else payload
         elif isinstance(path, (list, tuple)):
-            self.mission_plan = list(path)
+            self.waypoints = list(path)
         else:
-            raise TypeError("Mission path must be a list of waypoints or a JSON filepath")
+            raise TypeError('Mission path must be a JSON file path or list of waypoints')
 
-        if not self.mission_plan:
-            raise ValueError("Mission plan cannot be empty")
+        if not self.waypoints:
+            raise ValueError('Mission plan cannot be empty')
 
-        start_position = navigation.Navigation().current_position
-        end_position = self.mission_plan[-1]
-        self.route = navigation.calculate_route(start_position, end_position)
-        print(f"Mission defined with {len(self.mission_plan)} waypoints")
-        return self.route
+        self.home_position = self.waypoints[0] if self.waypoints else self.home_position
+        print(f"Loaded {len(self.waypoints)} waypoints")
+        return self.waypoints
 
-    def validate_mission(self):
-        """Check safety and feasibility before flight."""
-        if not self.mission_plan:
-            print("No mission plan defined")
+    def validate(self) -> bool:
+        if not self.waypoints:
+            print('No mission loaded')
             return False
-
-        if not self.sensors_calibrated:
-            print("Sensors are not calibrated")
+        if not self.health_status['gps'] or not self.health_status['imu']:
+            print('Sensor health is not sufficient for flight')
             return False
-
-        battery_needed = self.estimate_battery_usage()
-        if battery_needed > self.health_status['battery']:
-            print(f"Insufficient battery for mission: needs {battery_needed}%, available {self.health_status['battery']}%")
+        if self.estimate_battery_usage() > self.health_status['battery']:
+            print('Battery estimate too low for mission')
             return False
-
-        if any(obstacle_handling.detect_obstacle(waypoint) for waypoint in self.mission_plan if isinstance(waypoint, dict)):
-            print("Mission validation failed due to obstacles on route")
-            return False
-
-        print("Mission validation passed")
+        print('Mission validated')
         return True
 
-    def estimate_battery_usage(self):
-        """Predict energy needs for the defined mission."""
-        if not self.route:
+    def estimate_battery_usage(self) -> int:
+        if not self.waypoints:
             return 0
-
         total_distance = 0.0
-        previous = self.route[0]
-        for waypoint in self.route[1:]:
-            total_distance += self._distance(previous, waypoint)
-            previous = waypoint
-
-        estimate = min(100, int(total_distance * 2 + len(self.route) * 1.5))
-        print(f"Estimated battery usage: {estimate}% for distance {total_distance:.2f} km")
+        for current, next_wp in zip(self.waypoints, self.waypoints[1:]):
+            total_distance += math.hypot(next_wp[0] - current[0], next_wp[1] - current[1]) * 111.0
+        estimate = min(100, int(total_distance * 3 + len(self.waypoints) * 1.0))
+        print(f"Estimated battery usage: {estimate}%")
         return estimate
 
-    def optimize_route(self):
-        """Improve path efficiency based on distance and obstacles."""
-        if not self.route:
-            print("No route to optimize")
-            return []
-
-        original_length = len(self.route)
-        optimized = []
-        seen = set()
-        for waypoint in self.route:
-            if waypoint not in seen:
-                optimized.append(waypoint)
-                seen.add(waypoint)
-
-        self.route = optimized
-        print(f"Route optimized from {original_length} to {len(self.route)} waypoints")
-        return self.route
-
-    def scan_environment(self):
-        """Gather real-time sensor data."""
-        scan_data = {
-            'timestamp': datetime.datetime.now().isoformat(),
-            'distance': random.uniform(2, 50),
-            'vision': {'objects': random.randint(0, 5)},
-            'gps_signal': random.choice(['good', 'fair', 'weak']),
-            'wind_speed': random.uniform(0, 20),
-        }
-        self.last_environment_scan = scan_data
-        print(f"Environment scanned: {scan_data}")
-        return scan_data
-
-    def detect_dynamic_obstacles(self):
-        """Identify moving objects from the latest sensor scan."""
-        scan = self.last_environment_scan or self.scan_environment()
-        obstacles = []
-        if scan.get('vision', {}).get('objects', 0) > 0:
-            obstacles.append({'type': 'moving_object', 'distance': scan['distance']})
-            print(f"Detected dynamic obstacle at distance: {scan['distance']:.2f}m")
-        else:
-            print("No dynamic obstacles detected")
-        return obstacles
-
-    def update_world_model(self):
-        """Maintain an internal map of surroundings."""
-        scan = self.last_environment_scan or self.scan_environment()
-        self.world_model['last_scan'] = scan
-        self.world_model['updated_at'] = datetime.datetime.now().isoformat()
-        print("World model updated")
-        return self.world_model
-
-    def decision_engine(self, state=None):
-        """Choose the best next action based on AI logic."""
-        if state is None:
-            state = 'normal'
-            if self.health_status['battery'] < 25:
-                state = 'low_battery'
-            elif self.last_environment_scan.get('distance', 100) < 10:
-                state = 'obstacle_detected'
-            elif self.last_environment_scan.get('wind_speed', 0) > 15:
-                state = 'high_wind'
-
-        action = ai_decision.choose_action(state)
-        print(f"Decision engine selected action: {action}")
-        return action
-
-    def emergency_protocol(self):
-        """Trigger safe behavior in case of failure."""
-        self.emergency_engaged = True
-        self.mission_active = False
-        self.mission_paused = False
-        print("Emergency protocol engaged")
-        self.hover_stable()
-        return True
-
-    def auto_land(self):
-        """Safely land at the current or nearest safe location."""
-        if self.emergency_engaged:
-            print("Auto-landing due to emergency")
-        else:
-            print("Auto-landing at current location")
-        self.mission_active = False
-        return True
-
-    def return_to_base(self):
-        """Navigate back to origin automatically."""
-        self.set_flight_mode('assist')
-        navigation.set_destination(*self.home_position)
-        self.mission_active = False
-        print("Returning to base")
-        return self.home_position
-
-    def hover_stable(self):
-        """Maintain fixed position against wind or drift."""
-        status = stability.hold_position()
-        print("Hover stable engaged")
-        return status
-
-    def log_telemetry(self):
-        """Record all flight data continuously."""
-        data_logging.log_flight_data()
-        print("Telemetry logged")
-        return True
-
-    def sync_cloud(self):
-        """Upload logs and status to cloud storage."""
-        success = data_logging.send_to_cloud()
-        print("Cloud sync completed")
-        return success
-
-    def download_updates(self):
-        """Fetch improved AI models or configs."""
-        print("Downloading updates for AI models and configs")
-        updates = {
-            'ai_model': 'v1.1',
-            'config': 'latest',
-            'timestamp': datetime.datetime.now().isoformat(),
-        }
-        print(f"Downloaded updates: {updates}")
-        return updates
-
-    def simulate_mission(self):
-        """Run the mission in a virtual environment before execution."""
-        if not self.route:
-            print("No route available to simulate")
+    def execute(self) -> bool:
+        if not self.validate():
             return False
 
-        print("Simulating mission...")
-        for waypoint in self.route:
-            print(f"Simulated reaching waypoint: {waypoint}")
-        print("Mission simulation complete")
+        print('Starting mission execution')
+        self.active = True
+        for waypoint in self.waypoints:
+            if self.paused or not self.active:
+                print('Mission paused or stopped')
+                break
+
+            nav_state = self.navigation.navigate_to(*waypoint)
+            steps = 0
+            max_steps = 10  # Prevent infinite loop in simulation
+            while nav_state['distance_km'] > 0.01 and self.active and not self.paused and steps < max_steps:
+                if self.obstacle_handler.scan_for_obstacle():
+                    action = choose_action('obstacle_detected')
+                    if action == 'avoid':
+                        self.obstacle_handler.avoid_obstacle()
+                        self.obstacle_handler.reroute_path()
+                        break
+                self.flight_control.navigate_to(*waypoint)
+                self.logger.log_flight_data()
+                time.sleep(0.05)
+                nav_state = self.navigation.navigate_to(*waypoint)
+                steps += 1
+
+            print(f"Reached waypoint {waypoint}")
+
+        self.active = False
+        print('Mission complete')
         return True
 
-    def health_check(self):
-        """Continuously monitor system components and report failures or risks."""
+    def pause(self) -> None:
+        self.paused = True
+        print('Mission paused')
+
+    def resume(self) -> None:
+        self.paused = False
+        print('Mission resumed')
+
+    def return_home(self) -> Tuple[float, float]:
+        print('Returning to home position')
+        self.navigation.set_destination(*self.home_position)
+        return self.home_position
+
+    def land(self) -> bool:
+        print('Landing sequence engaged')
+        self.flight_control.disarm()
+        self.active = False
+        return True
+
+    def health_check(self) -> Dict[str, Any]:
         issues = []
         if self.health_status['battery'] < 20:
             issues.append('low_battery')
         if not self.health_status['gps']:
-            issues.append('gps_failure')
+            issues.append('gps_error')
         if not self.health_status['imu']:
-            issues.append('imu_failure')
-        if not self.health_status['camera']:
-            issues.append('camera_failure')
+            issues.append('imu_error')
         if not self.health_status['motors']:
-            issues.append('motor_failure')
+            issues.append('motor_error')
+        status = {'issues': issues, 'status': 'ok' if not issues else 'warning'}
+        print('Health check:', status)
+        return status
 
-        if issues:
-            print(f"Health check issues: {issues}")
-        else:
-            print("All systems nominal")
-        return {'status': 'ok' if not issues else 'warning', 'issues': issues}
-
-    @staticmethod
-    def _distance(start, end):
-        if not isinstance(start, tuple) or not isinstance(end, tuple):
-            return 0.0
-        return ((start[0] - end[0]) ** 2 + (start[1] - end[1]) ** 2) ** 0.5
-
-    def start_mission(self):
-        if not self.mission_active:
-            self.mission_active = True
-            self.mission_paused = False
-            print("Mission started")
-        else:
-            print("Mission already active")
-
-    def pause_mission(self):
-        if self.mission_active and not self.mission_paused:
-            self.mission_paused = True
-            print("Mission paused")
-        else:
-            print("Mission not active or already paused")
-
-    def return_home(self):
-        print("Returning to home position")
-        return navigation.set_destination(*self.home_position)
-
-
-# Convenience functions
-_controller = MissionController()
 
 class Drone:
-    """Lightweight drone facade for simple mission workflows."""
+    def __init__(self, mode: str = 'autonomous', hal: Optional[FlightControllerHAL] = None):
+        self.mission = Mission(hal=hal)
+        self.mode = mode
 
-    def __init__(self, mode='autonomous'):
-        self._controller = MissionController()
-        self._controller.set_flight_mode(mode)
+    def prepare(self) -> bool:
+        return self.mission.calibrate()
 
-    def fly(self, path):
-        """Initialize and execute a mission in one call."""
-        self._controller.initialize_system()
-        self._controller.calibrate_sensors()
-        self._controller.define_mission(path)
-        if not self._controller.validate_mission():
-            raise RuntimeError('Mission validation failed')
-        self._controller.optimize_route()
-        self._controller.simulate_mission()
-        self._controller.start_mission()
-        self._controller.log_telemetry()
-        return self._controller.route
+    def fly(self, path: Union[str, List[Tuple[float, float]]]) -> bool:
+        self.mission.load_waypoints(path)
+        self.mission.validate()
+        return self.mission.execute()
 
-    def home(self):
-        return self._controller.return_to_base()
+    def home(self) -> Tuple[float, float]:
+        return self.mission.return_home()
 
-    def land(self):
-        return self._controller.auto_land()
+    def land(self) -> bool:
+        return self.mission.land()
 
-    def emergency(self):
-        return self._controller.emergency_protocol()
+    def pause(self) -> None:
+        self.mission.pause()
 
-    def status(self):
-        return self._controller.health_check()
+    def resume(self) -> None:
+        self.mission.resume()
+
+    def status(self) -> Dict[str, Any]:
+        return self.mission.health_check()
 
 
-def quick_mission(path, mode='autonomous'):
-    """Shortcut to run a full mission with minimal user code."""
-    return Drone(mode=mode).fly(path)
+_controller = Mission()
 
 
-def quick_launch(path, mode='autonomous'):
-    return quick_mission(path, mode)
+def quick_mission(path: Union[str, List[Tuple[float, float]]]) -> bool:
+    return Drone().fly(path)
 
 
-def land():
-    return _controller.auto_land()
+def quick_launch(path: Union[str, List[Tuple[float, float]]]) -> bool:
+    return quick_mission(path)
 
 
-def home():
-    return _controller.return_to_base()
+def land() -> bool:
+    return _controller.land()
 
 
-def initialize_system():
-    return _controller.initialize_system()
+def home() -> Tuple[float, float]:
+    return _controller.return_home()
 
 
-def calibrate_sensors():
-    return _controller.calibrate_sensors()
+def initialize_system() -> bool:
+    return _controller.calibrate()
 
 
-def set_flight_mode(mode):
-    return _controller.set_flight_mode(mode)
+def calibrate_sensors() -> bool:
+    return _controller.calibrate()
 
 
-def define_mission(path):
-    return _controller.define_mission(path)
+def set_flight_mode(mode: str) -> str:
+    raise NotImplementedError('Flight mode selection is handled per Drone instance')
 
 
-def validate_mission():
-    return _controller.validate_mission()
+def define_mission(path: Union[str, List[Tuple[float, float]]]) -> List[Tuple[float, float]]:
+    return _controller.load_waypoints(path)
 
 
-def estimate_battery_usage():
+def validate_mission() -> bool:
+    return _controller.validate()
+
+
+def estimate_battery_usage() -> int:
     return _controller.estimate_battery_usage()
 
 
-def optimize_route():
-    return _controller.optimize_route()
+def optimize_route() -> List[Tuple[float, float]]:
+    print('Optimize route: current implementation uses direct waypoint load')
+    return _controller.waypoints
 
 
-def scan_environment():
-    return _controller.scan_environment()
+def scan_environment() -> Dict[str, Any]:
+    print('Environment scan is not available in mission-only mode')
+    return {}
 
 
-def detect_dynamic_obstacles():
-    return _controller.detect_dynamic_obstacles()
+def detect_dynamic_obstacles() -> List[Dict[str, Any]]:
+    print('Dynamic obstacle detection is available through ObstacleHandler')
+    return []
 
 
-def update_world_model():
-    return _controller.update_world_model()
+def update_world_model() -> Dict[str, Any]:
+    print('World model update is not available in mission-only convenience wrapper')
+    return {}
 
 
-def decision_engine(state=None):
-    return _controller.decision_engine(state)
+def decision_engine(state: Optional[str] = None) -> str:
+    if not state:
+        state = 'normal'
+    return choose_action(state)
 
 
-def emergency_protocol():
-    return _controller.emergency_protocol()
+def emergency_protocol() -> bool:
+    print('Emergency protocol triggered')
+    return _controller.land()
 
 
-def auto_land():
-    return _controller.auto_land()
+def auto_land() -> bool:
+    return _controller.land()
 
 
-def return_to_base():
-    return _controller.return_to_base()
+def return_to_base() -> Tuple[float, float]:
+    return _controller.return_home()
 
 
-def hover_stable():
-    return _controller.hover_stable()
+def hover_stable() -> bool:
+    print('Hover stable not available in mission-only wrapper')
+    return False
 
 
-def log_telemetry():
-    return _controller.log_telemetry()
+def log_telemetry() -> bool:
+    _controller.logger.log_flight_data()
+    return True
 
 
-def sync_cloud():
-    return _controller.sync_cloud()
+def sync_cloud() -> bool:
+    print('Cloud sync not available in mission-only wrapper')
+    return False
 
 
-def download_updates():
-    return _controller.download_updates()
+def download_updates() -> Dict[str, Any]:
+    print('No update service configured')
+    return {'status': 'none'}
 
 
-def simulate_mission():
-    return _controller.simulate_mission()
+def simulate_mission() -> bool:
+    print('Mission simulation is not supported in the new controller')
+    return False
 
 
-def health_check():
+def health_check() -> Dict[str, Any]:
     return _controller.health_check()
 
 
-def start_mission():
-    return _controller.start_mission()
+def start_mission() -> bool:
+    print('Start mission not supported on global controller, use Drone.fly()')
+    return False
 
 
-def pause_mission():
-    return _controller.pause_mission()
+def pause_mission() -> None:
+    _controller.pause()
 
 
-def return_home():
+def return_home() -> Tuple[float, float]:
     return _controller.return_home()

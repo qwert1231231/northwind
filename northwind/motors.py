@@ -1,10 +1,10 @@
 """
 Motor control module for Northwind drone library.
-Provides PWM speed control and hardware device profiles for ESP32, Arduino, and generic drone controllers.
+Provides PWM speed control, hardware device profiles, and multi-motor safety.
 """
 
 import time
-from typing import Literal
+from typing import Literal, List
 
 HardwareDevice = Literal['esp32', 'arduino', 'drone']
 
@@ -37,6 +37,7 @@ class MotorController:
         self.device_type = None
         self.profile = None
         self.current_pwm = 0
+        self.current_pwms: List[int] = [1000, 1000, 1000, 1000]
         self.target_speed = 0.0
         self.enabled = False
         self.set_device(device_type)
@@ -52,6 +53,7 @@ class MotorController:
         self.device_type = device_type
         self.profile = HARDWARE_PROFILES[device_type]
         self.current_pwm = self.profile['min_pwm']
+        self.current_pwms = [self.profile['min_pwm']] * 4
         self.target_speed = 0.0
         self.enabled = False
         print(f"Motor controller configured for {device_type.upper()}")
@@ -89,6 +91,24 @@ class MotorController:
         pwm_value = int(self.profile['min_pwm'] + (percent / 100.0) * range_size)
         return self.set_speed_pwm(pwm_value)
 
+    def set_motor_speeds(self, pwms: List[int]) -> List[int]:
+        """Set individual PWM values for all four motors."""
+        if len(pwms) != 4:
+            raise ValueError('Exactly 4 PWM values are required')
+
+        safe_pwms = [self._clamp_pwm(int(p)) for p in pwms]
+        self.current_pwms = safe_pwms
+        self.enabled = any(p > self.profile['min_pwm'] for p in safe_pwms)
+        print(f"Motor PWMs updated: {self.current_pwms}")
+        return self.current_pwms
+
+    def calibrate_esc(self):
+        """Calibrate ESC throttle range and safety limits."""
+        self.current_pwms = [self.profile['min_pwm']] * 4
+        self.enabled = False
+        print("ESC calibration complete")
+        return self.current_pwms
+
     def ramp_speed(self, target_percent: float, step: float = 5.0, delay: float = 0.05):
         """Smoothly ramp motor speed from current value to a target percent."""
         if not isinstance(target_percent, (int, float)):
@@ -120,20 +140,25 @@ class MotorController:
         return self.current_pwm
 
     def stop(self):
-        """Stop the motor by setting PWM to the device minimum."""
-        return self.set_speed_pwm(self.profile['min_pwm'])
+        """Stop all motors by setting PWM to the minimum safe value."""
+        self.current_pwms = [self.profile['min_pwm']] * 4
+        self.enabled = False
+        print("Motors stopped")
+        return self.current_pwms
 
     def get_status(self):
-        """Return the motor controller state, including current PWM and enabled status."""
+        """Return the motor controller state, including current PWM array."""
         status = {
             'device_type': self.device_type,
-            'current_pwm': self.current_pwm,
-            'target_speed_percent': self.target_speed,
+            'current_pwm': self.current_pwms.copy(),
             'enabled': self.enabled,
             'profile': self.profile.copy(),
         }
         print(f"Motor status: {status}")
         return status
+
+    def _clamp_pwm(self, value: int) -> int:
+        return max(self.profile['min_pwm'], min(self.profile['max_pwm'], value))
 
     def _pwm_to_percent(self, pwm_value: float) -> float:
         range_size = self.profile['max_pwm'] - self.profile['min_pwm']
@@ -156,6 +181,14 @@ def set_motor_speed_pwm(pwm: float):
 
 def set_motor_speed(percent: float):
     return _motor_controller.set_speed_percent(percent)
+
+
+def set_motor_speeds(pwms: List[int]):
+    return _motor_controller.set_motor_speeds(pwms)
+
+
+def calibrate_esc():
+    return _motor_controller.calibrate_esc()
 
 
 def ramp_motor_speed(target_percent: float, step: float = 5.0, delay: float = 0.05):

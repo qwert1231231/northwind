@@ -15,22 +15,22 @@ def main():
 
     # Navigation demo
     print("\n1. Navigation:")
-    northwind.set_destination(37.7749, -122.4194)  # San Francisco
-    route = northwind.calculate_route((0.0, 0.0), (37.7749, -122.4194))
-    position = northwind.update_position()
+    northwind.set_target_coordinate(37.7749, -122.4194)  # San Francisco
+    route = northwind.plan_flight_path((0.0, 0.0), (37.7749, -122.4194))
+    position = northwind.refresh_position()
 
     # Obstacle handling demo
     print("\n2. Obstacle Handling:")
-    obstacle_detected = northwind.detect_obstacle({'distance': 5.0})
+    obstacle_detected = northwind.scan_for_obstacle({'distance': 5.0})
     if obstacle_detected:
-        northwind.avoid_obstacle('left')
-        northwind.recalculate_path()
+        northwind.execute_avoidance('left')
+        northwind.reroute_path()
 
     # Stability demo
     print("\n3. Stability:")
-    northwind.correct_drift((0.001, -0.002))
+    northwind.correct_gps_drift((0.001, -0.002))
     northwind.adjust_altitude({'speed': 20, 'direction': 'N'})
-    northwind.hold_position()
+    northwind.engage_hover_hold()
 
     # Mission control demo
     print("\n4. Mission Control:")
@@ -44,8 +44,8 @@ def main():
     drone.fly([(0.0, 0.0), (37.7749, -122.4194)])
     drone.home()
 
-    # AI decision demo
-    print("\n5. AI Decision:")
+    # Decision logic demo
+    print("\n5. Decision Logic:")
     action = northwind.choose_action('obstacle_detected')
     next_move = northwind.predict_next_move()
 
