@@ -6,34 +6,29 @@ A lightweight set of helper modules and experiments for drone-style navigation, 
 
 ## Features
 
-### 1. Navigation (Location and route math)
-- `set_target_coordinate(lat, lon)` - Save a GPS destination coordinate
-- `plan_flight_path(start, end)` - Build a waypoint route from start to end
-- `refresh_position()` - Simulate a GPS/IMU position update
+Northwind provides two ways to interact with drone control systems:
 
-### 2. Obstacle Handling (Critical)
-- `scan_for_obstacle(sensor_data)` - Check sensor inputs for nearby obstacles
-- `execute_avoidance(direction)` - Perform a basic obstacle avoidance maneuver
-- `reroute_path()` - Rebuild the route after avoiding an obstacle
+### 1. **Simplified Drone Shortcut** (`from northwind import drone`)
+Direct, function-based API for quick scripts and prototyping.
+- Motor control: `drone.set_speed()`, `drone.ramp_speed()`, `drone.stop()`
+- Mission control: `drone.initialize()`, `drone.calibrate()`, `drone.fly()`, `drone.land()`, `drone.home()`
+- Navigation: `drone.set_destination()`, `drone.plan_route()`, `drone.update_position()`
+- Obstacle avoidance: `drone.check_obstacle()`, `drone.avoid()`, `drone.recalculate_path()`
+- Stability: `drone.correct_drift()`, `drone.adjust_altitude()`, `drone.hover()`
+- Sensors: `drone.scan()`, `drone.detect_moving_obstacles()`, `drone.health_check()`
+- AI decisions: `drone.decide()`, `drone.predict_move()`
+- Logging: `drone.log_data()`, `drone.export()`, `drone.upload_cloud()`
 
-### 3. Stability / Correction (Real Drone Behavior)
-- `correct_gps_drift(gps_error)` - Correct a GPS drift estimate
-- `adjust_altitude(wind_data)` - Adjust altitude based on wind conditions
-- `engage_hover_hold()` - Hold position using stabilization control
+### 2. **Full Module API** (Traditional import)
+Modular architecture for complex applications.
+- **Navigation** — Location and route math
+- **Obstacle Handling** — Sensor-based obstacle detection and avoidance
+- **Stability/Correction** — GPS drift, altitude adjustment, position hold
+- **Mission Control** — Mission lifecycle, waypoints, validation
+- **Motor Control** — PWM speed control for ESP32/Arduino/drone ESC
+- **AI Decision Layer** — State-based action selection
+- **Data Logging** — Telemetry recording and cloud export
 
-### 4. Mission Control
-- `start_mission()` - Begin a mission sequence
-- `pause_mission()` - Pause the current mission
-- `return_home()` - Return to home position safely
-
-### 5. Decision Helpers
-- `choose_action(state)` - Choose the next action based on current state
-- `predict_next_move()` - Predict the next move using simple logic
-
-### 6. Data Logging (For Learning)
-- `log_flight_data()` - Log flight telemetry and sensor data
-- `export_data()` - Export logged data to JSON files
-- `send_to_cloud()` - Upload data to cloud storage for analysis
 
 ## Installation
 
@@ -59,20 +54,55 @@ pip install -e .
 
 ## Quick Start
 
+### Simplified Shortcut API (Recommended for scripts)
+
+```python
+from northwind import drone
+
+# Initialize and configure
+drone.initialize()
+drone.calibrate()
+drone.set_mode('autonomous')
+
+# Configure motor hardware
+drone.config_device('esp32')
+
+# Execute a flight mission
+drone.fly([(0.0, 0.0), (10.5, 20.3), (15.2, 25.1)])
+
+# If needed, adjust speed during flight
+drone.set_speed(75)  # 75% throttle
+drone.ramp_speed(90, step=5, delay=0.1)  # Smooth ramp to 90%
+
+# Return home and land
+drone.home()
+drone.land()
+
+# Check system health
+status = drone.health_check()
+print(status)
+
+# Log and export flight data
+drone.log_telemetry()
+drone.export()
+```
+
+### Full Module Access (Advanced)
+
 ```python
 import northwind
 
 # Set destination coordinates
-northwind.set_target_coordinate(37.7749, -122.4194)  # San Francisco
+northwind.set_destination(37.7749, -122.4194)  # San Francisco
 
 # Start autonomous mission
 northwind.start_mission()
 
 # Hardware motor control
-northwind.configure_motor_profile('esp32')
-northwind.set_motor_speed_percent(75)  # percent of full PWM range
+northwind.set_hardware_device('esp32')
+northwind.set_motor_speed(75)  # percent of full PWM range
 northwind.ramp_motor_speed(90, step=10, delay=0.1)
-status = northwind.read_motor_status()
+status = northwind.get_motor_status()
 print(status)
 
 # Decision helpers
@@ -86,14 +116,42 @@ northwind.export_data()
 
 ## Motor Speed Control
 
-Northwind 1.1.2 introduces PWM-based motor speed control for embedded hardware platforms.
-Supported device profiles:
+Northwind 1.2.2 provides PWM-based motor speed control for ESP32, Arduino, and drone hardware platforms.
 
-- `esp32` — ESP32 PWM driver profile
-- `arduino` — Arduino PWM driver profile
-- `drone` — Generic drone ESC PWM profile
+### Supported Devices
+- `esp32` — ESP32 PWM driver (0-255 range, 1000 Hz)
+- `arduino` — Arduino PWM driver (0-255 range, 490 Hz)
+- `drone` — Generic drone ESC (1000-2000 µs range, 400 Hz)
 
-Use `configure_motor_profile(...)` to choose the device type, then control speed with `set_motor_speed_percent(...)` or `set_motor_pwm(...)`.
+### Using the Simplified Drone API
+```python
+from northwind import drone
+
+# Select hardware device
+drone.config_device('esp32')
+
+# Set speed directly
+drone.set_speed(50)  # 50% throttle
+
+# Ramp speed smoothly
+drone.ramp_speed(100, step=10, delay=0.05)
+
+# Check motor status
+status = drone.motor_status()
+print(f"Current PWM: {status['current_pwm']}")
+
+# Stop motor
+drone.stop()
+```
+
+### Using pwm values directly
+```python
+from northwind import motors
+
+motors.set_hardware_device('esp32')
+motors.set_motor_speed_pwm(128)  # Mid-range for ESP32
+```
+
 
 ## Requirements
 
